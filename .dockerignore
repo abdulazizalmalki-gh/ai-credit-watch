@@ -1,0 +1,19 @@
+# Docker matches these from the context root — a bare name like `__pycache__`
+# excludes only the top-level one and lets nested caches through, which is how
+# .pyc files carrying an absolute host path (a maintainer's home directory) once
+# ended up inside a locally built image. Every entry is therefore recursive.
+.git
+.github
+!.github/workflows/build-and-publish.yml
+.env
+.env.*
+!.env.example
+keys.env
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.venv
+**/venv
+**/.privacy-deny.local
+# docs/ (the README screenshot) stays in the build context: the test stage asserts the
+# README's links resolve, and the runtime stage never copies it, so it cannot ship.

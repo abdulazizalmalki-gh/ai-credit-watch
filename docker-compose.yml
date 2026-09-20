@@ -1,0 +1,52 @@
+services:
+  credit-watch:
+    build: .
+    # Set CREDIT_WATCH_IMAGE=ghcr.io/<owner>/ai-credit-watch:latest in .env to
+    # run the published image instead of building locally.
+    image: ${CREDIT_WATCH_IMAGE:-ai-credit-watch:latest}
+    # Deliberately no container_name: compose then names it <project>-credit-watch-N,
+    # so a second instance (or anything else already called ai-credit-watch on this
+    # host) cannot collide. Use `docker compose logs -f credit-watch`.
+    # Keys live in .env (copy .env.example). Missing file is fine: pass keys with
+    # `docker compose run -e ...` or export them in your shell instead.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Both .env and exported shell variables work: compose interpolates from .env
+      # too, so a value in either place lands here. Every documented provider key is
+      # listed — otherwise a key that only exists as a shell variable silently never
+      # reaches the container.
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_ADMIN_KEY: ${OPENAI_ADMIN_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_COST_WINDOW_DAYS: ${OPENAI_COST_WINDOW_DAYS:-30}
+      ANTHROPIC_ADMIN_KEY: ${ANTHROPIC_ADMIN_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_COST_WINDOW_DAYS: ${ANTHROPIC_COST_WINDOW_DAYS:-30}
+      MOONSHOT_API_KEY: ${MOONSHOT_API_KEY:-}
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      MOONSHOT_REGION: ${MOONSHOT_REGION:-international}
+      SHOW_UNCONFIGURED: ${SHOW_UNCONFIGURED:-false}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
+      HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS:-15}
+      REFRESH_MIN_INTERVAL_SECONDS: ${REFRESH_MIN_INTERVAL_SECONDS:-10}
+      REFRESH_MAX_PER_MINUTE: ${REFRESH_MAX_PER_MINUTE:-20}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:-}
+      BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:-}
+    ports:
+      # Interface to publish on. Default 127.0.0.1 (this host only).
+      # For LAN access set CREDIT_WATCH_BIND to this host's LAN IP, e.g.
+      #   CREDIT_WATCH_BIND=192.0.2.50
+      # (find it with: ip -4 -o addr show scope global)
+      # Never use 0.0.0.0 — bind the one interface you actually want.
+      - "${CREDIT_WATCH_BIND:-127.0.0.1}:${CREDIT_WATCH_PORT:-8760}:8000"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

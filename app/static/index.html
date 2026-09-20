@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>AI Credit Watch</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%92%B3%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+  <main class="wrap">
+    <header class="top">
+      <div class="brand">
+        <h1 id="app-title">AI Credit Watch</h1>
+        <p class="sub" id="subtitle">Remaining credits across your AI providers</p>
+      </div>
+      <div class="controls">
+        <label class="field">
+          <span>Auto refresh</span>
+          <select id="interval">
+            <option value="0">off</option>
+            <option value="60">1 min</option>
+            <option value="300" selected>5 min</option>
+            <option value="900">15 min</option>
+            <option value="3600">1 hour</option>
+          </select>
+        </label>
+        <button id="refresh" class="btn">Refresh</button>
+        <span id="cooldown" class="muted cooldown"></span>
+      </div>
+    </header>
+
+    <div class="statusbar">
+      <span id="status" class="pill">loading…</span>
+      <span id="updated" class="muted"></span>
+      <span id="next" class="muted"></span>
+    </div>
+
+    <section id="cards" class="grid" aria-live="polite"></section>
+    <p id="missing" class="missing muted"></p>
+
+    <section id="help" class="help" hidden>
+      <h2>Add a provider key</h2>
+      <p>Keys are read from environment variables, or from a keys file mounted into the container.</p>
+      <pre><code># docker run
+docker run -e DEEPSEEK_API_KEY=... -e OPENROUTER_API_KEY=... -p 127.0.0.1:8760:8000 ghcr.io/abdulazizalmalki-gh/ai-credit-watch:latest
+
+# docker compose — keys and bind address live in .env next to it
+DEEPSEEK_API_KEY=...
+OPENROUTER_API_KEY=...
+CREDIT_WATCH_BIND=192.0.2.50   # this host's LAN IP (default 127.0.0.1, never 0.0.0.0)</code></pre>
+    </section>
+
+    <footer class="foot">
+      <span id="version" class="muted"></span>
+      <span class="muted">·</span>
+      <a href="/api/docs" target="_blank" rel="noopener">API</a>
+      <span class="muted">·</span>
+      <span class="muted">keys never leave this container — only balances are rendered</span>
+    </footer>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

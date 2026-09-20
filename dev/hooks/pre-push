@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Blocks a push when the privacy sweep fails. Install it once per clone:
+#
+#   ./dev/install-hooks.sh
+#
+# Bypass only for a verified false positive: git push --no-verify
+set -uo pipefail
+
+root="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+sweep="$root/dev/privacy-sweep.sh"
+
+if [ ! -x "$sweep" ]; then
+    echo "pre-push: $sweep not found or not executable — skipping privacy sweep" >&2
+    exit 0
+fi
+
+echo "pre-push: running privacy sweep (tree, branch history, commit metadata)..."
+if ! "$sweep" --local-only; then
+    cat >&2 <<'MSG'
+
+pre-push: PRIVACY SWEEP FAILED — push aborted.
+
+Fix the finding, or if it is a genuine false positive add its address to
+.privacy-deny.local's allowlist section / dev/privacy-sweep.sh, then re-run
+./dev/privacy-sweep.sh until it passes. Only then push.
+MSG
+    exit 1
+fi
+echo "pre-push: sweep passed"
