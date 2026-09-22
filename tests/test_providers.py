@@ -822,3 +822,244 @@ def test_to_float(value, expected):
     from app.providers.base import to_float
 
     assert to_float(value) == expected
+
+
+# --- Xiaomi MiMo ------------------------------------------------------------------
+# The key can only read /v1/models; the money lives behind the console session cookie.
+# Both halves are pinned here, including the "be honest about it" path.
+
+XIAOMI_KEY = "sk-mimo-test-key"  # deliberately short: the privacy sweep flags sk-…{20,}
+XIAOMI_COOKIE = "api-platform_serviceToken=token-abc; userId=42; api-platform_ph=xyz"
+
+CONSOLE = "https://platform.xiaomimimo.com/api/v1"
+
+
+def xiaomi_provider(monkeypatch, tmp_path, *, key: str | None = XIAOMI_KEY, cookie=None):
+    """Build a provider with no keys-file surprises (a real .env must not leak in)."""
+    from app import config
+    from app.providers.xiaomi import XiaomiProvider
+
+    monkeypatch.setenv("KEYS_FILE", str(tmp_path / "missing.env"))
+    monkeypatch.setattr(config, "DEFAULT_KEYS_FILES", (str(tmp_path / "none.env"),))
+    config._file_keys.cache_clear()
+    for name in ("XIAOMI_MIMO_API_BASE", "XIAOMI_MIMO_CONSOLE_API_BASE", "XIAOMI_MIMO_COOKIE"):
+        monkeypatch.delenv(name, raising=False)
+    if cookie:
+        monkeypatch.setenv("XIAOMI_MIMO_COOKIE", cookie)
+    return XiaomiProvider(api_key=key)
+
+
+def models_payload(count: int) -> dict:
+    return {
+        "object": "list",
+        "data": [{"id": f"mimo-v2.6-pro-{i}", "object": "model", "owned_by": "xiaomi"} for i in range(count)],
+    }
+
+
+async def test_xiaomi_key_alone_reports_what_it_can_see(monkeypatch, tmp_path):
+    """No cookie: the key is validated, the card says where the balance really lives."""
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["headers"] = dict(request.headers)
+        return httpx.Response(200, json=models_payload(9))
+
+    provider = xiaomi_provider(monkeypatch, tmp_path)
+    async with mock_client(handler) as client:
+        result = await provider.fetch(client)
+
+    assert seen["path"] == "/v1/models"
+    assert seen["headers"]["api-key"] == XIAOMI_KEY
+    assert result.ok
+    assert [b.label for b in result.balances] == ["Models visible to this key"]
+    assert result.balances[0].amount == 9.0
+    assert result.balances[0].currency is None
+    assert result.meta == {"key_valid": True, "billing_available": False, "models_visible": 9}
+    assert result.note and "XIAOMI_MIMO_COOKIE" in result.note
+    # The note must not pretend the API can do something it cannot.
+    assert "no balance endpoint" in result.note
+
+
+async def test_xiaomi_rejects_a_key_the_api_refuses(monkeypatch, tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            401,
+            json={"error": {"message": "Invalid API Key", "type": "invalid_key"}},
+        )
+
+    provider = xiaomi_provider(monkeypatch, tmp_path)
+    async with mock_client(handler) as client:
+        result = await provider.fetch(client)
+
+    assert not result.ok
+    assert "Unauthorized" in (result.error or "")
+    assert "Invalid API Key" in (result.error or "")
+
+
+async def test_xiaomi_console_cookie_reports_balance_and_token_plan(monkeypatch, tmp_path):
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.setdefault("headers", dict(request.headers))
+        if request.url.path.endswith("/tokenPlan/detail"):
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "planCode": "PLAN-PRO",
+                        "currentPeriodEnd": "2026-10-21 10:00:00",
+                        "expired": False,
+                    },
+                },
+            )
+        if request.url.path.endswith("/tokenPlan/usage"):
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "monthUsage": {
+                            "percent": 25.0,
+                            "items": [
+                                {"name": "credits", "used": 250, "limit": 1000, "percent": 25.0}
+                            ],
+                        }
+                    },
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "data": {"balance": "12.5", "currency": "USD", "cashBalance": "10", "giftBalance": "2.5"},
+            },
+        )
+
+    provider = xiaomi_provider(monkeypatch, tmp_path, cookie=XIAOMI_COOKIE)
+    async with mock_client(handler) as client:
+        result = await provider.fetch(client)
+
+    assert result.ok
+    primary = [b for b in result.balances if b.primary]
+    assert len(primary) == 1
+    assert primary[0].label == "Total balance"
+    assert primary[0].amount == 12.5
+    assert primary[0].currency == "USD"
+    labels = {b.label: b.amount for b in result.balances}
+    assert labels["Paid (cash)"] == 10.0
+    assert labels["Granted (gift)"] == 2.5
+    assert labels["Token plan credits used"] == 250.0
+    assert labels["Token plan credits left"] == 750.0
+    assert result.meta["source"] == "console"
+    assert result.meta["plan_code"] == "PLAN-PRO"
+    assert result.meta["token_plan_percent"] == 25.0
+    assert result.note and "2026-10-21 10:00:00" in result.note
+    # The console is a web API: it wants the browser's headers, not a bearer token.
+    assert seen["headers"]["cookie"] == XIAOMI_COOKIE
+    assert seen["headers"]["origin"] == "https://platform.xiaomimimo.com"
+    assert "console/balance" in seen["headers"]["referer"]
+
+
+async def test_xiaomi_console_expired_session_is_explained(monkeypatch, tmp_path):
+    """An HTTP 401 and a JSON ``code: 401`` both mean 'log in again', not 'broken app'."""
+    provider = xiaomi_provider(monkeypatch, tmp_path, cookie=XIAOMI_COOKIE)
+
+    async with mock_client(lambda request: httpx.Response(401, json={"code": 401})) as client:
+        result = await provider.fetch(client)
+    assert not result.ok
+    assert "expired" in (result.error or "")
+
+    body_401 = httpx.Response(200, json={"code": 401, "message": "login required"})
+    async with mock_client(lambda request: body_401) as client:
+        result = await provider.fetch(client)
+    assert not result.ok
+    assert "expired" in (result.error or "")
+
+
+async def test_xiaomi_console_redirect_to_the_login_page_is_explained(monkeypatch, tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "account.xiaomi.com" in str(request.url):
+            return httpx.Response(200, text="<html>sign in</html>")
+        return httpx.Response(
+            302, headers={"location": "https://account.xiaomi.com/pass/serviceLogin"}
+        )
+
+    provider = xiaomi_provider(monkeypatch, tmp_path, cookie=XIAOMI_COOKIE)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), follow_redirects=True
+    ) as client:
+        result = await provider.fetch(client)
+
+    assert not result.ok
+    assert "expired" in (result.error or "")
+
+
+async def test_xiaomi_cookie_missing_required_names_says_which(monkeypatch, tmp_path):
+    provider = xiaomi_provider(monkeypatch, tmp_path, cookie="api-platform_ph=only-this")
+    async with mock_client(lambda request: httpx.Response(200, json={"code": 0})) as client:
+        result = await provider.fetch(client)
+
+    assert not result.ok
+    assert "api-platform_serviceToken" in (result.error or "")
+    assert "userId" in (result.error or "")
+    assert result.meta["missing_cookies"] == ["api-platform_serviceToken", "userId"]
+
+
+async def test_xiaomi_token_plan_failures_never_hide_the_balance(monkeypatch, tmp_path):
+    """A pay-as-you-go account has no plan: the plan endpoints 4xx and that is fine."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/tokenPlan/" in request.url.path:
+            return httpx.Response(404, json={"code": 404, "message": "no plan"})
+        return httpx.Response(200, json={"code": 0, "data": {"balance": "3.25", "currency": "USD"}})
+
+    provider = xiaomi_provider(monkeypatch, tmp_path, cookie=XIAOMI_COOKIE)
+    async with mock_client(handler) as client:
+        result = await provider.fetch(client)
+
+    assert result.ok
+    assert [b.label for b in result.balances] == ["Total balance"]
+    assert result.balances[0].amount == 3.25
+    assert result.note is None
+
+
+async def test_xiaomi_console_error_code_is_reported(monkeypatch, tmp_path):
+    provider = xiaomi_provider(monkeypatch, tmp_path, cookie=XIAOMI_COOKIE)
+    response = httpx.Response(200, json={"code": 500, "message": "internal error"})
+    async with mock_client(lambda request: response) as client:
+        result = await provider.fetch(client)
+
+    assert not result.ok
+    assert "500" in (result.error or "")
+    assert "internal error" in (result.error or "")
+
+
+async def test_xiaomi_reports_network_errors(monkeypatch, tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom", request=request)
+
+    provider = xiaomi_provider(monkeypatch, tmp_path)
+    async with mock_client(handler) as client:
+        result = await provider.fetch(client)
+    assert not result.ok
+    assert "Network error" in (result.error or "")
+
+
+def test_xiaomi_console_cookie_alone_is_enough_to_be_configured(monkeypatch, tmp_path):
+    """Balance needs no API key at all, so a cookie-only setup must not show as unconfigured."""
+    provider = xiaomi_provider(monkeypatch, tmp_path, key=None, cookie=XIAOMI_COOKIE)
+    assert provider.configured
+    assert provider.catalog_entry()["key_env"] == "XIAOMI_MIMO_API_KEY"
+
+    bare = xiaomi_provider(monkeypatch, tmp_path, key=None, cookie=None)
+    assert not bare.configured
+
+
+def test_xiaomi_accepts_the_mimo_api_key_alias():
+    from app.providers.xiaomi import XiaomiProvider
+
+    assert XiaomiProvider.env_keys == ("XIAOMI_MIMO_API_KEY", "MIMO_API_KEY")
+    assert "xiaomi" in __import__("app.providers", fromlist=["provider_ids"]).provider_ids()
+
