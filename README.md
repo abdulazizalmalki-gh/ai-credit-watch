@@ -21,7 +21,6 @@ Currently ships with:
 | **OpenAI** | `GET /organization/costs`, `GET /organization/usage/completions` | spend for the last 30 days and today, average per day, plus tokens and model requests — *admin key only, and admin keys cannot read `/v1/models` (a plain project key gets an explanatory card instead)* |
 | **Moonshot / Kimi** | `GET /v1/users/me/balance` | available balance (= cash + voucher), cash and voucher separately; region-bound keys (`.ai` USD / `.cn` CNY) are auto-detected — no admin key needed |
 | **Anthropic** | `GET /organizations/cost_report`, `GET /organizations/usage_report/messages` | spend for the last 30 days and today, average per day, tokens and cache reads/writes (cost arrives in cents) — *needs an admin credential* |
-| **Xiaomi MiMo** | `GET /v1/models` (key), console `GET /balance`, `/tokenPlan/detail`, `/tokenPlan/usage` | balance, paid (cash) vs. granted (gift) split, token-plan credits used/left — *MiMo exposes no balance endpoint to API keys, so the card shows what the key can see until you add the console session cookie* |
 
 Adding a provider is one ~40-line file (see [Adding a provider](#adding-a-provider)).
 
@@ -185,9 +184,6 @@ Prefer not to expose it at all? Run `tailscale` (or an SSH tunnel:
 | `ANTHROPIC_COST_WINDOW_DAYS` | `30` | Days of Anthropic spend to summarise (cost report caps at 31) |
 | `MOONSHOT_API_KEY` / `KIMI_API_KEY` | — | Moonshot (Kimi) key; plain keys read their own balance |
 | `MOONSHOT_REGION` | `international` | `china` switches to `api.moonshot.cn` (CNY billing) |
-| `XIAOMI_MIMO_API_KEY` / `MIMO_API_KEY` | — | Xiaomi MiMo key; validates the key and lists the models it can call |
-| `XIAOMI_MIMO_COOKIE` | — | MiMo console `Cookie:` header (must contain `api-platform_serviceToken` and `userId`) — the only way to read the balance |
-| `XIAOMI_MIMO_API_BASE` / `XIAOMI_MIMO_CONSOLE_API_BASE` | provider defaults | Point MiMo at a proxy/gateway |
 | `CREDIT_WATCH_BIND` | `127.0.0.1` | Host interface to publish on. Set it to the host's LAN IP for LAN access (never `0.0.0.0`) |
 | `CREDIT_WATCH_PORT` | `8760` | Host port, published on `CREDIT_WATCH_BIND` |
 | `SHOW_UNCONFIGURED` | `false` | Show a placeholder card for providers with no key (default: just a footer note) |
@@ -323,9 +319,7 @@ Two of the shipped providers are worth reading before writing your own, because 
 APIs are messier than the sketch above: `app/providers/openai.py` (admin keys are refused
 by `/v1/models`, so it asks for costs first and uses models only to explain a failure) and
 `app/providers/anthropic.py` (auth is `x-api-key` + `anthropic-version`, and cost arrives
-as decimal strings in cents). `app/providers/xiaomi.py` is the third shape: the money is
-not on the API host at all — it reads the console's own endpoints with a session cookie
-when one is configured, and otherwise reports honestly what the key can and cannot see.
+as decimal strings in cents).
 
 
 The module is discovered automatically — restart the container and the card appears
