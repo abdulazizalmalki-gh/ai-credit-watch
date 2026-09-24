@@ -33,6 +33,7 @@ def isolated_keys(monkeypatch, tmp_path):
         "OPENAI_ADMIN_KEY",
         "OPENAI_API_KEY",
         "ALIBABA_TOKEN_PLAN_API_KEY",
+        "ALIBABA_TOKEN_PLAN_CONSOLE_TOKEN",
         "BASIC_AUTH_USER",
         "BASIC_AUTH_PASSWORD",
     ):

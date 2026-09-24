@@ -21,7 +21,7 @@ Currently ships with:
 | **OpenAI** | `GET /organization/costs`, `GET /organization/usage/completions` | spend for the last 30 days and today, average per day, plus tokens and model requests — *admin key only, and admin keys cannot read `/v1/models` (a plain project key gets an explanatory card instead)* |
 | **Moonshot / Kimi** | `GET /v1/users/me/balance` | available balance (= cash + voucher), cash and voucher separately; region-bound keys (`.ai` USD / `.cn` CNY) are auto-detected — no admin key needed |
 | **Anthropic** | `GET /organizations/cost_report`, `GET /organizations/usage_report/messages` | spend for the last 30 days and today, average per day, tokens and cache reads/writes (cost arrives in cents) — *needs an admin credential* |
-| **Alibaba Token Plan (Qwen)** | `GET {token-plan base}/models` | subscription alive + models it can call; region-bound keys (Singapore / Beijing) — *Credits usage itself has no public API, only the console* |
+| **Alibaba Token Plan (Qwen)** | `GET {token-plan base}/models` + the official CLI console gateway | subscription alive + models it can call (key), and the Credits windows (5-hour / 7-day / monthly + extra bundles) via a one-click **console session link** — Alibaba exposes quota only through the console API, so the card links a short-lived access token instead of a balance endpoint |
 
 Adding a provider is one ~40-line file (see [Adding a provider](#adding-a-provider)).
 
@@ -188,6 +188,8 @@ Prefer not to expose it at all? Run `tailscale` (or an SSH tunnel:
 | `ALIBABA_TOKEN_PLAN_API_KEY` | — | Token Plan `sk-sp-` key: validates the subscription and lists its models |
 | `ALIBABA_TOKEN_PLAN_REGION` | `international` | `china` switches to the Beijing plan host |
 | `ALIBABA_TOKEN_PLAN_BASE_URL` | provider default | Point at another token-plan host (e.g. a different region) |
+| `ALIBABA_TOKEN_PLAN_CONSOLE_TOKEN` | — | Headless alternative to the console link: a `bl auth login --console` access token (short-lived, re-mintable) |
+| `CONSOLE_LINK_PORT` | `8761` | Loopback port the Qwen console delivers the link token to |
 | `CREDIT_WATCH_BIND` | `127.0.0.1` | Host interface to publish on. Set it to the host's LAN IP for LAN access (never `0.0.0.0`) |
 | `CREDIT_WATCH_PORT` | `8760` | Host port, published on `CREDIT_WATCH_BIND` |
 | `SHOW_UNCONFIGURED` | `false` | Show a placeholder card for providers with no key (default: just a footer note) |

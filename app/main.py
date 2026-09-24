@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
+from .console_link import LINK_TTL_SECONDS, console_token, link_flow
 from .providers import Provider, ProviderResult, build_providers, catalog
 from .ratelimit import RefreshLimiter, client_key
 
@@ -212,6 +213,38 @@ async def api_providers() -> dict[str, Any]:
         **rate_limiter.describe(),
         "providers": catalog(),
     }
+
+
+def _console_site() -> str:
+    """Which console login page matches the configured Token Plan region."""
+    region = (os.getenv("ALIBABA_TOKEN_PLAN_REGION") or "").strip().lower()
+    return "domestic" if region in {"china", "cn", "cn-beijing", "beijing"} else "international"
+
+
+@app.post("/api/link/start")
+async def api_link_start() -> Any:
+    """Begin a one-shot loopback link: returns the console-login URL to open."""
+    url = link_flow.start(_console_site())
+    if url is None:
+        return JSONResponse({"detail": "Link port is busy — retry in a moment."}, status_code=409)
+    return {"url": url, "status": "waiting", "expires_in_seconds": LINK_TTL_SECONDS}
+
+
+@app.get("/api/link/status")
+async def api_link_status() -> dict[str, Any]:
+    return {"status": link_flow.status(), "console_linked": bool(console_token())}
+
+
+@app.post("/api/link/cancel")
+async def api_link_cancel() -> dict[str, Any]:
+    link_flow.cancel()
+    return {"status": link_flow.status()}
+
+
+@app.post("/api/link/unlink")
+async def api_link_unlink() -> dict[str, Any]:
+    link_flow.clear()
+    return {"status": link_flow.status(), "console_linked": bool(console_token())}
 
 
 @app.get("/api/balances", response_model=None)

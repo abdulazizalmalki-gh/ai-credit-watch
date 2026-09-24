@@ -61,10 +61,19 @@ def test_every_provider_documents_its_key_in_env_example():
 
 
 def test_compose_publishes_an_interface_never_all_interfaces():
-    """Only real (non-comment) lines count: the file deliberately explains *why*
-    never to use 0.0.0.0, and that sentence must not trip the guard."""
+    """Every PUBLISHED PORT mapping pins an interface; container-internal bind
+    env vars (e.g. CONSOLE_LINK_BIND=0.0.0.0 behind a 127.0.0.1 host mapping)
+    are not exposures — but no mapping may bind all interfaces."""
     assert "${CREDIT_WATCH_BIND:-127.0.0.1}" in effective(COMPOSE)
-    assert "0.0.0.0" not in effective(COMPOSE)
+    ports = re.search(r"ports:\n((?:[ \t]+-[^\n]+\n?)+)", effective(COMPOSE))
+    assert ports, "compose lost its ports section"
+    for line in ports.group(1).splitlines():
+        mapping = line.strip().lstrip("- ")
+        if mapping.startswith('"'):
+            mapping = mapping[1:-1]
+        left = mapping.rsplit(":", 1)[0]
+        assert left and ":" in left, f"port mapping {mapping!r} binds all interfaces"
+        assert not left.startswith("0.0.0.0"), f"port mapping {mapping!r} binds all interfaces"
 
 
 def test_compose_keeps_the_container_hardened():

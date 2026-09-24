@@ -145,6 +145,17 @@ select, .btn {
 .lines .val { font-variant-numeric: tabular-nums; }
 .lines .k { color: var(--muted); }
 
+.link-box { display: flex; align-items: center; gap: 10px; margin: 4px 0 8px; flex-wrap: wrap; }
+.link-btn {
+  font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--text); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 9px;
+  padding: 7px 13px; cursor: pointer;
+}
+.link-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.link-btn:disabled { opacity: 0.55; cursor: default; }
+.link-hint { font-size: 12px; }
+
 .note, .error {
   font-size: 12.5px;
   border-radius: 10px;

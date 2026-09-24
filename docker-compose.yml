@@ -19,6 +19,11 @@ services:
       # reaches the container.
       ALIBABA_TOKEN_PLAN_API_KEY: ${ALIBABA_TOKEN_PLAN_API_KEY:-}
       ALIBABA_TOKEN_PLAN_REGION: ${ALIBABA_TOKEN_PLAN_REGION:-international}
+      ALIBABA_TOKEN_PLAN_CONSOLE_TOKEN: ${ALIBABA_TOKEN_PLAN_CONSOLE_TOKEN:-}
+      CONSOLE_LINK_BIND: 0.0.0.0
+      CONSOLE_LINK_ADVERTISE_PORT: ${CONSOLE_LINK_PORT:-8761}
+      # tmpfs path (wiped on restart); the linked token is short-lived anyway.
+      CONSOLE_LINK_STORE: /tmp/console-link.json
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENAI_ADMIN_KEY: ${OPENAI_ADMIN_KEY:-}
@@ -38,6 +43,11 @@ services:
       BASIC_AUTH_USER: ${BASIC_AUTH_USER:-}
       BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:-}
     ports:
+      # Console link listener: the Qwen console POSTs its short-lived access
+      # token to 127.0.0.1:<this port> on the machine running the browser.
+      # Host side is pinned to loopback on purpose — remote browsers cannot
+      # use the link flow (use ALIBABA_TOKEN_PLAN_CONSOLE_TOKEN there instead).
+      - "127.0.0.1:${CONSOLE_LINK_PORT:-8761}:8761"
       # Interface to publish on. Default 127.0.0.1 (this host only).
       # For LAN access set CREDIT_WATCH_BIND to this host's LAN IP, e.g.
       #   CREDIT_WATCH_BIND=192.0.2.50

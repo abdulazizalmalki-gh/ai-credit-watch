@@ -841,7 +841,7 @@ async def test_alibaba_token_plan_reports_models_and_no_fake_balance():
     assert len(primary) == 1
     assert primary[0].amount == 2.0
     # the whole point: it never invents a Credits number
-    assert "no API" in result.note
+    assert "Connect console session" in result.note
     assert not any(b.amount is not None and b.currency == "Credits" for b in result.balances)
 
 

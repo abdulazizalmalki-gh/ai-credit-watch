@@ -97,6 +97,77 @@ function line(label, value, className = "") {
   return li;
 }
 
+// The Alibaba console-link flow: start returns a console-login URL that must be
+// opened on the machine running this server (the console delivers the token to
+// 127.0.0.1 there). We poll /api/link/status until it reports linked.
+let linkPoll = null;
+
+function stopLinkPoll() {
+  if (linkPoll) clearTimeout(linkPoll);
+  linkPoll = null;
+}
+
+async function linkStatus() {
+  try {
+    const response = await fetch("/api/link/status", { cache: "no-store" });
+    return response.ok ? await response.json() : { status: "idle" };
+  } catch (error) {
+    return { status: "idle" };
+  }
+}
+
+function linkControl(provider) {
+  const wrap = document.createElement("div");
+  wrap.className = "link-box";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "link-btn";
+  const hint = document.createElement("span");
+  hint.className = "muted link-hint";
+
+  if (provider.console_linked) {
+    button.textContent = "Reconnect console session";
+    hint.textContent = "linked";
+  } else {
+    button.textContent = "Connect console session";
+    hint.textContent = "for Credits usage";
+  }
+
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    hint.textContent = "starting…";
+    try {
+      const response = await fetch("/api/link/start", { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || "HTTP " + response.status);
+      hint.textContent = "complete the sign-in in the tab we opened, on THIS machine";
+      window.open(body.url, "_blank", "noopener");
+      stopLinkPoll();
+      const tickLink = async () => {
+        const status = await linkStatus();
+        if (status.status === "linked") {
+          stopLinkPoll();
+          load(true);
+          return;
+        }
+        if (status.status !== "waiting") {
+          hint.textContent = "link window closed — try again";
+          button.disabled = false;
+          return;
+        }
+        linkPoll = setTimeout(tickLink, 2000);
+      };
+      linkPoll = setTimeout(tickLink, 2000);
+    } catch (error) {
+      hint.textContent = String(error.message || error);
+      button.disabled = false;
+    }
+  });
+
+  wrap.append(button, hint);
+  return wrap;
+}
+
 function card(provider) {
   const node = document.createElement("article");
   node.className = "card" + (provider.configured ? "" : " unconfigured");
@@ -204,6 +275,8 @@ function card(provider) {
     note.append(chip);
     node.append(note);
   }
+
+  if (provider.linkable) node.append(linkControl(provider));
 
   const foot = document.createElement("div");
   foot.className = "card-foot";
