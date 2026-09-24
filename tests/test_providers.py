@@ -814,6 +814,75 @@ def test_moonshot_env_alias_prefers_moonshot_key(monkeypatch, tmp_path):
     config._file_keys.cache_clear()
 
 
+INTERNATIONAL = "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+
+
+# --- Alibaba Token Plan (Personal Edition) -------------------------------------
+
+async def test_alibaba_token_plan_reports_models_and_no_fake_balance():
+    from app.providers.alibaba_token_plan import AlibabaTokenPlanProvider
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == f"Bearer {KEY}"
+        assert request.url.path.endswith("/models")
+        return httpx.Response(
+            200,
+            json={"object": "list", "data": [{"id": "qwen3.8-flash"}, {"id": "glm-5.2"}]},
+        )
+
+    provider = AlibabaTokenPlanProvider(api_key=KEY)
+    async with mock_client(handler) as client:
+        result = await provider.fetch(client)
+
+    assert result.ok
+    assert result.meta["key_valid"] is True
+    assert result.meta["models_visible"] == 2
+    primary = [b for b in result.balances if b.primary]
+    assert len(primary) == 1
+    assert primary[0].amount == 2.0
+    # the whole point: it never invents a Credits number
+    assert "no API" in result.note
+    assert not any(b.amount is not None and b.currency == "Credits" for b in result.balances)
+
+
+async def test_alibaba_token_plan_rejects_a_dead_key_with_region_advice():
+    from app.providers.alibaba_token_plan import AlibabaTokenPlanProvider
+
+    provider = AlibabaTokenPlanProvider(api_key=KEY)
+    async with mock_client(lambda request: httpx.Response(401, json={})) as client:
+        result = await provider.fetch(client)
+
+    assert not result.ok
+    assert "region-bound" in result.error
+    assert "cn-beijing" in result.error  # international key was tried: the other host is named
+
+
+async def test_alibaba_token_plan_region_switches_host(monkeypatch):
+    from app.providers.alibaba_token_plan import AlibabaTokenPlanProvider
+
+    monkeypatch.delenv("ALIBABA_TOKEN_PLAN_BASE_URL", raising=False)
+    monkeypatch.setenv("ALIBABA_TOKEN_PLAN_REGION", "china")
+    provider = AlibabaTokenPlanProvider(api_key=KEY)
+    assert "cn-beijing" in provider.base_url
+
+    monkeypatch.setenv("ALIBABA_TOKEN_PLAN_BASE_URL", INTERNATIONAL)
+    provider = AlibabaTokenPlanProvider(api_key=KEY)
+    assert provider.base_url == INTERNATIONAL.rstrip("/")
+
+
+async def test_alibaba_token_plan_reports_network_errors():
+    from app.providers.alibaba_token_plan import AlibabaTokenPlanProvider
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom", request=request)
+
+    provider = AlibabaTokenPlanProvider(api_key=KEY)
+    async with mock_client(handler) as client:
+        result = await provider.fetch(client)
+    assert not result.ok
+    assert "Network error" in result.error
+
+
 @pytest.mark.parametrize(
     "value,expected",
     [("1.50", 1.5), (3, 3.0), (None, None), ("", None), ("abc", None), (True, None)],

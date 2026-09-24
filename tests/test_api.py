@@ -32,6 +32,7 @@ def isolated_keys(monkeypatch, tmp_path):
         "KIMI_API_KEY",
         "OPENAI_ADMIN_KEY",
         "OPENAI_API_KEY",
+        "ALIBABA_TOKEN_PLAN_API_KEY",
         "BASIC_AUTH_USER",
         "BASIC_AUTH_PASSWORD",
     ):
@@ -86,7 +87,7 @@ def test_index_is_served(client):
 def test_provider_catalog_lists_every_provider_without_keys(client):
     body = client.get("/api/providers").json()
     ids = [p["id"] for p in body["providers"]]
-    assert ids == ["anthropic", "deepseek", "moonshot", "openai", "openrouter"]
+    assert ids == ["alibaba-token-plan", "anthropic", "deepseek", "moonshot", "openai", "openrouter"]
     assert all(p["configured"] is False for p in body["providers"])
     assert all(p["key_hint"] is None for p in body["providers"])
     for provider in body["providers"]:
@@ -96,7 +97,7 @@ def test_provider_catalog_lists_every_provider_without_keys(client):
 
 def test_unconfigured_providers_are_reported_not_fatal(client):
     body = client.get("/api/balances").json()
-    assert [p["status"] for p in body["providers"]] == ["unconfigured"] * 5
+    assert [p["status"] for p in body["providers"]] == ["unconfigured"] * 6
     assert body["providers"][0]["note"].startswith("Not configured")
     assert body["providers"][0]["balances"] == []
 
@@ -105,11 +106,11 @@ def test_unconfigured_providers_are_hidden_by_default(client):
     """The page filters them out; the API still lists them so the UI can name the env var."""
     balances = client.get("/api/balances").json()
     assert balances["show_unconfigured"] is False
-    assert len(balances["providers"]) == 5
+    assert len(balances["providers"]) == 6
 
     providers = client.get("/api/providers").json()
     assert providers["show_unconfigured"] is False
-    assert len(providers["providers"]) == 5
+    assert len(providers["providers"]) == 6
 
 
 def test_show_unconfigured_can_be_switched_on(client, monkeypatch):
@@ -126,8 +127,8 @@ def test_configured_providers_return_balances_and_only_masked_keys(client, monke
     by_id = {p["id"]: p for p in body["providers"]}
 
     assert KEY not in response.text  # the secret itself is never serialised
-    assert [p["status"] for p in body["providers"]] == ["unconfigured", "ok", "unconfigured", "unconfigured", "ok"]
-    assert [p["key_hint"] for p in body["providers"]] == [None, "…1234", None, None, "…1234"]
+    assert [p["status"] for p in body["providers"]] == ["unconfigured", "unconfigured", "ok", "unconfigured", "unconfigured", "ok"]
+    assert [p["key_hint"] for p in body["providers"]] == [None, None, "…1234", None, None, "…1234"]
 
     deepseek = by_id["deepseek"]
     assert deepseek["balances"][0]["amount"] == 42.0

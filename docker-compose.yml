@@ -17,6 +17,8 @@ services:
       # too, so a value in either place lands here. Every documented provider key is
       # listed — otherwise a key that only exists as a shell variable silently never
       # reaches the container.
+      ALIBABA_TOKEN_PLAN_API_KEY: ${ALIBABA_TOKEN_PLAN_API_KEY:-}
+      ALIBABA_TOKEN_PLAN_REGION: ${ALIBABA_TOKEN_PLAN_REGION:-international}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENAI_ADMIN_KEY: ${OPENAI_ADMIN_KEY:-}
