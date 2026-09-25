@@ -184,7 +184,14 @@ function linkControl(provider) {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.detail || "HTTP " + response.status);
       const origin = window.location.origin;
-      const command = `curl -s ${origin}/static/link-relay.py -o link-relay.py && python3 link-relay.py --server ${origin} --code ${body.code}`;
+      // Windows: python3 is a Store alias stub and bare `curl` is a
+      // PowerShell alias — the working spellings are py/python + curl.exe.
+      const win = /Windows/i.test(navigator.userAgent);
+      const fetchCmd = win ? "curl.exe" : "curl -s";
+      const runCmd = win ? "python" : "python3";
+      const command = win
+        ? `${fetchCmd} ${origin}/static/link-relay.py -o link-relay.py; ${runCmd} link-relay.py --server ${origin} --code ${body.code}`
+        : `${fetchCmd} ${origin}/static/link-relay.py -o link-relay.py && ${runCmd} link-relay.py --server ${origin} --code ${body.code}`;
       hint.innerHTML = "";
       const pre = document.createElement("div");
       pre.className = "link-cmd";
