@@ -164,13 +164,16 @@ def test_build_result_turns_percentages_into_credits_via_quota_config():
 
     assert result.ok
     lines = {b.label: b for b in result.balances}
-    # minimal card: remaining per window + days left; used amounts only in meta
+    # full card: remaining + used + ceiling per window, plus plan lines
     assert lines["Credits left (7-day)"].amount == 7500.0
     assert lines["Credits left (7-day)"].primary is True
-    assert not any("used" in label.lower() for label in lines)
+    assert lines["Credits used (7-day)"].amount == 2500.0
+    assert lines["Window ceiling (7-day)"].amount == 10000.0
     assert lines["Plan days left"].amount == 12.0
     assert result.meta["spec"] == "standard"
     assert result.meta["subscription_days_left"] == 12
+    assert "Plan: standard" in (result.note or "")
+    assert "25.0% used" in (result.note or "")
 
 
 def test_build_result_without_ceilings_shows_percentages_only():
@@ -179,6 +182,25 @@ def test_build_result_without_ceilings_shows_percentages_only():
     assert result.balances[0].label == "Used (5-hour)"
     assert result.balances[0].amount == 50.0
     assert "percentages only" in (result.note or "")
+
+
+def test_build_result_surfaces_subscription_details():
+    sub = {
+        "specCode": "pro", "remainingDays": 3, "status": "VALID",
+        "autoRenewFlag": True,
+        "startTime": 1790257917000, "endTime": 1792857600000,
+    }
+    quota = {"pro": {"five_hour": 12000.0, "weekly": 25000.0, "monthly": 180000.0}}
+    result = build_result({"per5HourPercentage": 0.25}, quota, sub, {})
+    assert result.meta["auto_renew"] is True
+    assert result.meta["status"] == "VALID"
+    assert result.meta["startTime"].startswith("2026-")
+    assert result.meta["endTime"].startswith("2026-")
+    assert "auto-renew on" in (result.note or "")
+    assert f"ends {result.meta['endTime'][:10]}" in (result.note or "")
+    # per-window trio present for the window with data
+    labels = {b.label for b in result.balances}
+    assert {"Credits left (5-hour)", "Credits used (5-hour)", "Window ceiling (5-hour)"} <= labels
 
 
 def test_build_result_without_data_is_a_failure():

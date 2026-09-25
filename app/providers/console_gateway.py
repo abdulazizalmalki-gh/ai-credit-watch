@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-from .base import KIND_INFO, KIND_USED, Balance, ProviderResult, to_float
+from .base import KIND_INFO, KIND_LIMIT, KIND_USED, Balance, ProviderResult, to_float
 
 USAGE_API_BASE = "zeldaHttp.apikeyMgr./tokenplan/personal/api/v2"
 
@@ -151,47 +151,67 @@ def _iso_from_millis(millis: object) -> str | None:
     return datetime.fromtimestamp(value / 1000, tz=timezone.utc).isoformat(timespec="seconds")
 
 
+def _fmt(iso: str) -> str:
+    """2026-10-24T16:00:00+00:00 -> '2026-10-24 16:00 UTC' (notes-facing)."""
+    return iso.replace("T", " ")[:16] + " UTC"
+
+
 def build_result(usage: dict, quota: dict, subscription: dict, addon: dict) -> ProviderResult:
     """Turn the four gateway payloads into balances + meta + note."""
     balances: list[Balance] = []
-    meta: dict[str, object] = {"source": "console", "windows": {}}
+    meta: dict[str, object] = {"source": "console"}
+    windows: dict[str, float] = {}
+    meta["windows"] = windows
     spec = str(subscription.get("specCode") or "")
     ceilings = quota.get(spec) if isinstance(quota.get(spec), dict) else {}
-    remaining_lines: list[Balance] = []
     resets: dict[str, str] = {}
 
-    # The minimal card: Credits left per window (+ optional extra bundle) and
-    # plan days left. Percentages only appear where no ceiling exists to turn
-    # into Credits; used amounts and ceilings live in meta, not on the card.
+    # Full card: per window show remaining, used and the ceiling (Credits) or
+    # the percentage when the plan's quota-config has no such ceiling.
+    window_lines: list[Balance] = []
     for field, reset_field, quota_key, label in WINDOWS:
         fraction = used_fraction(usage.get(field))
         if fraction is None:
             continue
-        meta["windows"][label] = round(fraction, 4)
+        windows[label] = round(fraction, 4)
         reset_iso = _iso_from_millis(usage.get(reset_field))
         if reset_iso:
             resets[label] = reset_iso
         ceiling = to_float(ceilings.get(quota_key)) if ceilings else None
         if ceiling:
             used = round(fraction * ceiling, 2)
-            remaining_lines.append(
+            window_lines.append(
                 Balance(label=f"Credits left ({label})", amount=round(max(0.0, ceiling - used), 2), currency="Credits")
             )
+            window_lines.append(
+                Balance(label=f"Credits used ({label})", amount=used, currency="Credits", kind=KIND_USED)
+            )
+            window_lines.append(
+                Balance(label=f"Window ceiling ({label})", amount=ceiling, currency="Credits", kind=KIND_LIMIT)
+            )
         else:
-            remaining_lines.append(
+            window_lines.append(
                 Balance(label=f"Used ({label})", amount=round(fraction * 100, 2), currency="%", kind=KIND_USED)
             )
-    balances = remaining_lines
-    if remaining_lines:
-        # The tightest window is the one that will stop you first: make it the headline.
-        candidates = [b.amount for b in remaining_lines if b.amount is not None]
-        if candidates:
-            target = min(candidates)
-            next(b for b in remaining_lines if b.amount == target).primary = True
 
     addon_remaining = to_float(addon.get("remainingCredits"))
     if addon.get("activeCount") and addon_remaining is not None:
-        balances.append(Balance(label="Credits left (extra bundle)", amount=addon_remaining, currency="Credits"))
+        window_lines.append(
+            Balance(label="Credits left (extra bundle)", amount=addon_remaining, currency="Credits")
+        )
+        total = to_float(addon.get("totalCredits"))
+        if total:
+            window_lines.append(
+                Balance(label="Extra bundle total", amount=total, currency="Credits", kind=KIND_INFO)
+            )
+
+    balances = window_lines
+    if window_lines:
+        # The tightest window is the one that will stop you first: make it the headline.
+        candidates = [b.amount for b in window_lines if b.amount is not None and b.label.startswith("Credits left")]
+        if candidates:
+            target = min(candidates)
+            next(b for b in window_lines if b.amount == target and b.label.startswith("Credits left")).primary = True
 
     if spec:
         meta["spec"] = spec
@@ -201,10 +221,30 @@ def build_result(usage: dict, quota: dict, subscription: dict, addon: dict) -> P
         balances.append(
             Balance(label="Plan days left", amount=to_float(days_left), currency=None, kind=KIND_INFO)
         )
+    for key in ("startTime", "endTime"):
+        iso = _iso_from_millis(subscription.get(key))
+        if iso:
+            meta[key] = iso
+    status = subscription.get("status")
+    if status:
+        meta["status"] = str(status)
+    if "autoRenewFlag" in subscription:
+        meta["auto_renew"] = bool(subscription.get("autoRenewFlag"))
 
     note_bits: list[str] = []
+    if spec:
+        plan = f"Plan: {spec}"
+        if status and status != "VALID":
+            plan += f", status {status}"
+        if "auto_renew" in meta:
+            plan += f", auto-renew {'on' if meta['auto_renew'] else 'off'}"
+        if meta.get("endTime"):
+            plan += f", ends {meta['endTime'][:10]}"
+        note_bits.append(plan + ".")
     for label, iso in resets.items():
-        note_bits.append(f"{label} window resets {iso}.")
+        pct = windows.get(label)
+        tail = f" ({round(pct * 100, 1)}% used)" if pct is not None else ""
+        note_bits.append(f"{label} window resets {_fmt(iso)}{tail}.")
 
     if not balances:
         return ProviderResult(
