@@ -20,3 +20,6 @@ venv/
 .idea/
 .vscode/
 .DS_Store
+
+# local backups of .env (the sweep scans tracked files; keep them out of git)
+.env.bak*

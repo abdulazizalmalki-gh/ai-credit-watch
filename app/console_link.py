@@ -22,6 +22,7 @@ import os
 import secrets
 import threading
 import time
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 #: Bind inside this process. 127.0.0.1 when the app runs on the host itself;
@@ -33,6 +34,10 @@ LISTEN_PORT = int(os.getenv("CONSOLE_LINK_PORT", "8761"))
 #: The port the browser is told to deliver to (host-side published port when Docker maps it).
 ADVERTISE_PORT = int(os.getenv("CONSOLE_LINK_ADVERTISE_PORT", str(LISTEN_PORT)))
 LINK_TTL_SECONDS = 300
+#: Relay mode (browser on another machine): the user's PC runs a tiny listener
+#: that forwards the console's loopback delivery to us, proved by this nonce.
+RELAY_TTL_SECONDS = 300
+RELAY_MAX_FAILURES = 10
 STORE_PATH = os.getenv("CONSOLE_LINK_STORE", "")  # empty = memory only
 CONSOLE_ORIGIN = {
     "international": "https://modelstudio.console.alibabacloud.com",
@@ -143,10 +148,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             "console_region": (fields.get("console_region") or "").strip() or None,
             "linked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
-        global _token
-        with _lock:
-            _token = stored
-        _save_store(stored)
+        _store_token(stored)
         return True
 
     def do_POST(self) -> None:
@@ -213,6 +215,8 @@ class LinkFlow:
         self._thread: threading.Thread | None = None
         self._state: str | None = None
         self._idle: threading.Timer | None = None
+        #: relay mode: {"code":.., "state":.., "site":.., "failures":int} or None
+        self._relay: dict[str, Any] | None = None
 
     def start(self, site: str = "international") -> str | None:
         self.cancel()
@@ -231,6 +235,7 @@ class LinkFlow:
         return f"{origin}/console-login?notice=127.0.0.1:{ADVERTISE_PORT}?state={self._state}"
 
     def cancel(self) -> None:
+        self._relay = None  # a cancel disarms relay mode too
         if self._idle is not None:
             self._idle.cancel()
             self._idle = None
@@ -255,11 +260,91 @@ class LinkFlow:
 
     def status(self) -> str:
         server = self._server
-        if server is None:
-            return "idle" if not self.linked else "linked"
-        if server.result is True:
-            return "linked"
-        return "waiting"
+        if server is not None:
+            return "linked" if server.result is True else "waiting"
+        if self.relay_armed():
+            return "waiting"  # a relay PC holds the attempt open
+        return "idle" if not self.linked else "linked"
+
+    def relay_armed(self) -> bool:
+        relay = self._relay
+        return bool(relay) and float(relay["armed_at"]) + RELAY_TTL_SECONDS > time.time()
+
+    # --- relay mode: browser on another machine -------------------------------
+
+    def relay_start(self, site: str = "international") -> dict[str, Any]:
+        """Arm a relay link: returns the short code the PC-side relay hands
+        back to us with each forwarded delivery (proof-of-link), plus the
+        console-login URL for reference."""
+        self.cancel()
+        code = secrets.token_hex(3)          # 6 chars, human-typable in a command
+        self._relay = {
+            "code": code,
+            "state": secrets.token_hex(16),  # nonce embedded in the console URL
+            "site": site,
+            "failures": 0,
+            "armed_at": time.time(),
+        }
+        return dict(self._relay)
+
+    def relay_claim(self, code: str, port: int) -> str | None:
+        """A relay PC announces itself and picks up the console URL. One relay
+        at a time; a wrong code means someone is guessing — count it.
+
+        The console delivers to 127.0.0.1:<port> — on the RELAY's machine,
+        where the user's browser runs and where nothing else listens."""
+        relay = self._relay
+        if not relay or float(relay["armed_at"]) + RELAY_TTL_SECONDS < time.time():
+            return None
+        if not code or not secrets.compare_digest(code, str(relay["code"])):
+            relay["failures"] = int(relay["failures"]) + 1
+            if relay["failures"] >= RELAY_MAX_FAILURES:
+                self._relay = None  # someone is guessing: burn the attempt
+            return None
+        origin = CONSOLE_ORIGIN.get(str(relay["site"]), CONSOLE_ORIGIN["international"])
+        url = f"{origin}/console-login?notice=127.0.0.1:{int(port)}?state={relay['state']}"
+        relay["url"] = url
+        return url
+
+    def relay_console_url(self) -> str:
+        relay = self._relay
+        return str((relay or {}).get("url", ""))
+
+    def relay_deliver(self, code: str, state: str, token: dict[str, str]) -> bool:
+        """Accept a token forwarded by the user's relay PC. Both the short code
+        and the console-URL state nonce must match; then the attempt is spent."""
+        relay = self._relay
+        if not relay:
+            return False
+        if float(relay["armed_at"]) + RELAY_TTL_SECONDS < time.time():
+            self._relay = None
+            return False
+        ok_code = secrets.compare_digest(code or "", str(relay["code"]))
+        ok_state = secrets.compare_digest(state or "", str(relay["state"]))
+        if not (ok_code and ok_state):
+            relay["failures"] = int(relay["failures"]) + 1
+            if relay["failures"] >= RELAY_MAX_FAILURES:
+                self._relay = None  # looks like guessing: burn the attempt
+            return False
+        access = (token.get("access_token") or token.get("accessToken") or "").strip()
+        if not access:
+            return False
+        _store_token({
+            "access_token": access,
+            "console_site": (token.get("console_site") or "").strip() or str(relay["site"]) or None,
+            "console_region": (token.get("console_region") or "").strip() or None,
+            "linked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "via": "relay",
+        })
+        self._relay = None
+        return True
+
+
+def _store_token(stored: dict[str, object]) -> None:
+    global _token
+    with _lock:
+        _token = stored
+    _save_store(stored)
 
 
 link_flow = LinkFlow()

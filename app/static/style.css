@@ -146,6 +146,21 @@ select, .btn {
 .lines .k { color: var(--muted); }
 
 .link-box { display: flex; align-items: center; gap: 10px; margin: 4px 0 8px; flex-wrap: wrap; }
+.link-alt {
+  font: inherit; font-size: 12px; background: none; border: none;
+  color: var(--accent); cursor: pointer; padding: 0; text-decoration: underline;
+}
+.link-alt:disabled { opacity: 0.5; cursor: default; }
+.link-cmd {
+  flex-basis: 100%; display: flex; align-items: center; gap: 8px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+  padding: 7px 9px; overflow-x: auto;
+}
+.link-cmd code { font-size: 11.5px; white-space: nowrap; }
+.link-copy {
+  font: inherit; font-size: 11px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--panel); color: var(--muted); padding: 2px 8px; cursor: pointer; flex: none;
+}
 .link-btn {
   font: inherit; font-size: 13px; font-weight: 600;
   color: var(--text); background: var(--panel-2);

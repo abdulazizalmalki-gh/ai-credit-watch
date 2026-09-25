@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__
-from .console_link import LINK_TTL_SECONDS, console_token, link_flow
+from .console_link import LINK_TTL_SECONDS, RELAY_TTL_SECONDS, console_token, link_flow
 from .providers import Provider, ProviderResult, build_providers, catalog
 from .ratelimit import RefreshLimiter, client_key
 
@@ -222,12 +222,50 @@ def _console_site() -> str:
 
 
 @app.post("/api/link/start")
-async def api_link_start() -> Any:
-    """Begin a one-shot loopback link: returns the console-login URL to open."""
+async def api_link_start(relay: bool = False) -> Any:
+    """Begin a one-shot link. relay=false: the loopback flow (browser on this
+    machine). relay=true: returns the short code + command for a browser on
+    another device."""
+    if relay:
+        armed = link_flow.relay_start(_console_site())
+        return {
+            "mode": "relay",
+            "code": armed["code"],
+            "expires_in_seconds": RELAY_TTL_SECONDS,
+        }
     url = link_flow.start(_console_site())
     if url is None:
         return JSONResponse({"detail": "Link port is busy — retry in a moment."}, status_code=409)
     return {"url": url, "status": "waiting", "expires_in_seconds": LINK_TTL_SECONDS}
+
+
+@app.get("/api/link/relay/claim")
+async def api_link_relay_claim(code: str = "", port: int = 0) -> Any:
+    """The user's relay PC picks up the console-login URL for its link code."""
+    url = link_flow.relay_claim(code, port) if code and port else None
+    if url is None:
+        return {"ok": False}
+    return {"ok": True, "url": url}
+
+
+@app.post("/api/link/relay/deliver")
+async def api_link_relay_deliver(request: Request) -> Any:
+    """The user's relay PC forwards the console's token delivery to us."""
+    try:
+        body = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        return JSONResponse({"ok": False}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False}, status_code=400)
+    fields = {k: str(v) for k, v in body.items() if isinstance(v, (str, int, float))}
+    ok = link_flow.relay_deliver(
+        fields.get("code", ""), fields.get("state", ""),
+        {k: fields.get(k, "") for k in ("access_token", "accessToken", "console_site", "console_region")},
+    )
+    if not ok:
+        # 403 on the dashboard side too: the relay treats a wrong code as fatal.
+        return JSONResponse({"ok": False}, status_code=403)
+    return {"ok": True}
 
 
 @app.get("/api/link/status")

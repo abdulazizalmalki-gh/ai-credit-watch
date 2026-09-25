@@ -124,6 +124,10 @@ function linkControl(provider) {
   button.className = "link-btn";
   const hint = document.createElement("span");
   hint.className = "muted link-hint";
+  const alt = document.createElement("button");
+  alt.type = "button";
+  alt.className = "link-alt";
+  alt.textContent = "Browser on another device?";
 
   if (provider.console_linked) {
     button.textContent = "Reconnect console session";
@@ -133,8 +137,29 @@ function linkControl(provider) {
     hint.textContent = "for Credits usage";
   }
 
+  const startPoll = () => {
+    stopLinkPoll();
+    const tickLink = async () => {
+      const status = await linkStatus();
+      if (status.status === "linked") {
+        stopLinkPoll();
+        load(true);
+        return;
+      }
+      if (status.status !== "waiting") {
+        hint.textContent = "link window closed — try again";
+        button.disabled = false;
+        alt.disabled = false;
+        return;
+      }
+      linkPoll = setTimeout(tickLink, 2000);
+    };
+    linkPoll = setTimeout(tickLink, 2000);
+  };
+
   button.addEventListener("click", async () => {
     button.disabled = true;
+    alt.disabled = true;
     hint.textContent = "starting…";
     try {
       const response = await fetch("/api/link/start", { method: "POST" });
@@ -142,29 +167,48 @@ function linkControl(provider) {
       if (!response.ok) throw new Error(body.detail || "HTTP " + response.status);
       hint.textContent = "complete the sign-in in the tab we opened, on THIS machine";
       window.open(body.url, "_blank", "noopener");
-      stopLinkPoll();
-      const tickLink = async () => {
-        const status = await linkStatus();
-        if (status.status === "linked") {
-          stopLinkPoll();
-          load(true);
-          return;
-        }
-        if (status.status !== "waiting") {
-          hint.textContent = "link window closed — try again";
-          button.disabled = false;
-          return;
-        }
-        linkPoll = setTimeout(tickLink, 2000);
-      };
-      linkPoll = setTimeout(tickLink, 2000);
+      startPoll();
     } catch (error) {
       hint.textContent = String(error.message || error);
       button.disabled = false;
+      alt.disabled = false;
     }
   });
 
-  wrap.append(button, hint);
+  alt.addEventListener("click", async () => {
+    button.disabled = true;
+    alt.disabled = true;
+    hint.textContent = "arming relay link…";
+    try {
+      const response = await fetch("/api/link/start?relay=true", { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || "HTTP " + response.status);
+      const origin = window.location.origin;
+      const command = `curl -s ${origin}/static/link-relay.py -o link-relay.py && python3 link-relay.py --server ${origin} --code ${body.code}`;
+      hint.innerHTML = "";
+      const pre = document.createElement("div");
+      pre.className = "link-cmd";
+      const code = document.createElement("code");
+      code.textContent = command;
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "link-copy";
+      copy.textContent = "copy";
+      copy.addEventListener("click", () => {
+        navigator.clipboard.writeText(command).then(() => { copy.textContent = "copied"; });
+      });
+      pre.append(code, copy);
+      wrap.append(pre);
+      hint.textContent = "run that on the computer with your browser — it opens the Qwen sign-in there and finishes automatically";
+      startPoll();
+    } catch (error) {
+      hint.textContent = String(error.message || error);
+      button.disabled = false;
+      alt.disabled = false;
+    }
+  });
+
+  wrap.append(button, alt, hint);
   return wrap;
 }
 

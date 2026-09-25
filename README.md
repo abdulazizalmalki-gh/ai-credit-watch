@@ -189,6 +189,16 @@ Prefer not to expose it at all? Run `tailscale` (or an SSH tunnel:
 | `ALIBABA_TOKEN_PLAN_REGION` | `international` | `china` switches to the Beijing plan host |
 | `ALIBABA_TOKEN_PLAN_BASE_URL` | provider default | Point at another token-plan host (e.g. a different region) |
 | `ALIBABA_TOKEN_PLAN_CONSOLE_TOKEN` | — | Headless alternative to the console link: a `bl auth login --console` access token (short-lived, re-mintable) |
+| `CONSOLE_LINK_BIND` | `127.0.0.1` | Only for Docker, where the published port arrives on the container interface (compose sets it; the host side stays loopback) |
+
+> **Browser on another device?** (dashboard on a server, browser on your laptop) —
+> The Qwen console can only hand its token to `127.0.0.1` on the machine running
+> the *browser* — a browser security rule, not a dashboard one. The card's
+> "Browser on another device?" button gives you one command to run on the browser
+> machine: `link-relay.py` listens there, receives the console delivery, and
+> forwards it to the dashboard once, behind a two-nonce check. (Windows: open the
+> script URL in the browser and save it, then run
+> `python link-relay.py --server <dashboard-url> --code <CODE>`.)
 | `CONSOLE_LINK_PORT` | `8761` | Loopback port the Qwen console delivers the link token to |
 | `CREDIT_WATCH_BIND` | `127.0.0.1` | Host interface to publish on. Set it to the host's LAN IP for LAN access (never `0.0.0.0`) |
 | `CREDIT_WATCH_PORT` | `8760` | Host port, published on `CREDIT_WATCH_BIND` |
