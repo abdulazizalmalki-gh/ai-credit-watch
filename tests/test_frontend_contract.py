@@ -63,6 +63,14 @@ def test_frontend_handles_the_abuse_blocker():
     assert 'id="cooldown"' in HTML
 
 
+# The relay copy button must survive http:// pages, where navigator.clipboard
+# is undefined — the execCommand fallback and the select-and-Ctrl+C last resort
+# are load-bearing; pin them so a refactor can't silently drop the fallback.
+@pytest.mark.parametrize("needle", ["isSecureContext", "execCommand", "press Ctrl+C"])
+def test_copy_button_has_non_secure_context_fallback(needle):
+    assert needle in JS
+
+
 def test_secret_like_strings_are_not_hardcoded_in_assets():
     for asset, text in (("index.html", HTML), ("app.js", JS), ("style.css", CSS)):
         assert not re.search(r"(?i)(api[_-]?key|bearer)\s*[:=]\s*[\"'][^\"']{12,}", text), asset

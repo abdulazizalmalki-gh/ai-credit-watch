@@ -203,13 +203,36 @@ function linkControl(provider) {
       copy.type = "button";
       copy.className = "link-copy";
       copy.textContent = "Copy command";
-      copy.addEventListener("click", () => {
-        const done = () => {
+      copy.addEventListener("click", async (event) => {
+        let ok = false;
+        // navigator.clipboard exists only in secure contexts (https/localhost).
+        // On http://LAN-ip it's undefined — fall back to execCommand, and if
+        // that fails too, select the text so Ctrl+C definitely works.
+        if (navigator.clipboard && window.isSecureContext) {
+          try { await navigator.clipboard.writeText(command); ok = true; } catch (error) { ok = false; }
+        }
+        if (!ok) {
+          const scratch = document.createElement("textarea");
+          scratch.value = command;
+          scratch.style.position = "fixed";
+          scratch.style.opacity = "0";
+          document.body.append(scratch);
+          scratch.select();
+          try { ok = document.execCommand("copy"); } catch (error) { ok = false; }
+          scratch.remove();
+        }
+        if (ok) {
           copy.textContent = "Copied ✓";
-          setTimeout(() => { copy.textContent = "Copy command"; }, 2500);
-        };
-        if (navigator.clipboard) navigator.clipboard.writeText(command).then(done, done);
-        else done();
+        } else {
+          // last resort: pre-select the command and tell the user to press Ctrl+C
+          const range = document.createRange();
+          range.selectNodeContents(code);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          copy.textContent = "Selected — press Ctrl+C";
+        }
+        setTimeout(() => { copy.textContent = "Copy command"; }, 3000);
       });
       head.append(label, copy);
       const code = document.createElement("code");
