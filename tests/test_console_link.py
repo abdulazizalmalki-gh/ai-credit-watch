@@ -164,18 +164,19 @@ def test_build_result_turns_percentages_into_credits_via_quota_config():
 
     assert result.ok
     lines = {b.label: b for b in result.balances}
-    assert lines["Credits remaining (7-day)"].amount == 7500.0
-    assert lines["Credits remaining (7-day)"].primary is True
-    assert lines["Credits used (7-day)"].amount == 2500.0
+    # minimal card: remaining per window + days left; used amounts only in meta
+    assert lines["Credits left (7-day)"].amount == 7500.0
+    assert lines["Credits left (7-day)"].primary is True
+    assert not any("used" in label.lower() for label in lines)
+    assert lines["Plan days left"].amount == 12.0
     assert result.meta["spec"] == "standard"
     assert result.meta["subscription_days_left"] == 12
-    assert "Plan: standard, 12 day(s) left." in result.note
 
 
 def test_build_result_without_ceilings_shows_percentages_only():
     result = build_result({"per5HourPercentage": 0.5}, {}, {}, {})
     assert result.ok
-    assert result.balances[0].label == "Window used (5-hour)"
+    assert result.balances[0].label == "Used (5-hour)"
     assert result.balances[0].amount == 50.0
     assert "percentages only" in (result.note or "")
 
@@ -216,7 +217,7 @@ async def test_provider_merges_gateway_quota_with_key_models(monkeypatch):
 
     assert result.ok
     labels = [b.label for b in result.balances]
-    assert "Credits remaining (7-day)" in labels
+    assert "Credits left (7-day)" in labels
     assert any(b.label.startswith("Models available") for b in result.balances)
     assert result.balances[0].primary is True  # quota leads the card
     assert result.meta["spec"] == "standard"

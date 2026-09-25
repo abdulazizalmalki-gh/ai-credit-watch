@@ -160,6 +160,9 @@ def build_result(usage: dict, quota: dict, subscription: dict, addon: dict) -> P
     remaining_lines: list[Balance] = []
     resets: dict[str, str] = {}
 
+    # The minimal card: Credits left per window (+ optional extra bundle) and
+    # plan days left. Percentages only appear where no ceiling exists to turn
+    # into Credits; used amounts and ceilings live in meta, not on the card.
     for field, reset_field, quota_key, label in WINDOWS:
         fraction = used_fraction(usage.get(field))
         if fraction is None:
@@ -171,41 +174,35 @@ def build_result(usage: dict, quota: dict, subscription: dict, addon: dict) -> P
         ceiling = to_float(ceilings.get(quota_key)) if ceilings else None
         if ceiling:
             used = round(fraction * ceiling, 2)
-            balances.append(Balance(label=f"Credits used ({label})", amount=used, currency="Credits", kind=KIND_USED))
             remaining_lines.append(
-                Balance(label=f"Credits remaining ({label})", amount=round(max(0.0, ceiling - used), 2), currency="Credits")
+                Balance(label=f"Credits left ({label})", amount=round(max(0.0, ceiling - used), 2), currency="Credits")
             )
         else:
-            balances.append(
-                Balance(label=f"Window used ({label})", amount=round(fraction * 100, 2), currency="%", kind=KIND_USED)
+            remaining_lines.append(
+                Balance(label=f"Used ({label})", amount=round(fraction * 100, 2), currency="%", kind=KIND_USED)
             )
-    balances = remaining_lines + balances
+    balances = remaining_lines
     if remaining_lines:
         # The tightest window is the one that will stop you first: make it the headline.
-        min(remaining_lines, key=lambda b: b.amount if b.amount is not None else float("inf")).primary = True
+        candidates = [b.amount for b in remaining_lines if b.amount is not None]
+        if candidates:
+            target = min(candidates)
+            next(b for b in remaining_lines if b.amount == target).primary = True
 
     addon_remaining = to_float(addon.get("remainingCredits"))
     if addon.get("activeCount") and addon_remaining is not None:
-        balances.append(Balance(label="Extra bundle Credits remaining", amount=addon_remaining, currency="Credits"))
-        total = to_float(addon.get("totalCredits"))
-        if total:
-            balances.append(Balance(label="Extra bundle Credits total", amount=total, currency="Credits", kind=KIND_INFO))
+        balances.append(Balance(label="Credits left (extra bundle)", amount=addon_remaining, currency="Credits"))
 
     if spec:
         meta["spec"] = spec
     days_left = subscription.get("remainingDays")
     if days_left is not None:
         meta["subscription_days_left"] = days_left
+        balances.append(
+            Balance(label="Plan days left", amount=to_float(days_left), currency=None, kind=KIND_INFO)
+        )
 
     note_bits: list[str] = []
-    if spec:
-        plan = f"Plan: {spec}"
-        if days_left is not None:
-            plan += f", {days_left} day(s) left"
-        status = subscription.get("status")
-        if status and status != "VALID":
-            plan += f", status {status}"
-        note_bits.append(plan + ".")
     for label, iso in resets.items():
         note_bits.append(f"{label} window resets {iso}.")
 
@@ -218,9 +215,10 @@ def build_result(usage: dict, quota: dict, subscription: dict, addon: dict) -> P
             ),
             meta=meta,
         )
-    if not remaining_lines:
+    if any(b.currency == "%" for b in balances):
         note_bits.append("Quota ceilings unavailable; lines show percentages only.")
 
+    meta["window_resets"] = resets
     return ProviderResult(ok=True, balances=balances, note=" ".join(note_bits) or None, meta=meta)
 
 
