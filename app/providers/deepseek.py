@@ -4,6 +4,10 @@ GET https://api.deepseek.com/user/balance
   -> {"is_available": true,
       "balance_infos": [{"currency": "USD", "total_balance": "110.00",
                          "granted_balance": "10.00", "topped_up_balance": "100.00"}]}
+
+GET https://api.deepseek.com/models (best-effort extra context)
+  -> per model: name, context_window, max_output_tokens, input/output
+     modalities, reasoning-effort levels. The key's real callable model list.
 """
 
 from __future__ import annotations
@@ -82,8 +86,39 @@ class DeepSeekProvider(Provider):
                     Balance(label=f"Topped up{suffix}", amount=topped_up, currency=currency, kind=KIND_USED)
                 )
 
-        return ProviderResult(
-            ok=True,
-            balances=balances,
-            meta={"usable": bool(payload.get("is_available"))},
-        )
+        meta: dict = {"usable": bool(payload.get("is_available"))}
+        balances.extend(await self._fetch_model_context(client))
+        # keep any models info from derailing the money lines
+        return ProviderResult(ok=True, balances=balances, meta=meta)
+
+    async def _fetch_model_context(self, client: httpx.AsyncClient) -> list[Balance]:
+        """Callable-model context lines; empty on any failure (balance rules)."""
+        try:
+            response = await client.get(f"{self.base_url}/models", headers=self.auth_headers())
+            if response.status_code >= 400:
+                return []
+            models = response.json().get("data") or []
+        except (httpx.HTTPError, ValueError):
+            return []
+        lines: list[Balance] = []
+        count = [m for m in models if isinstance(m, dict)]
+        lines.append(Balance(
+            label="Models callable by this key",
+            amount=float(len(count)), currency=None, kind=KIND_INFO,
+        ))
+        for model in count:
+            mid = str(model.get("id") or model.get("name") or "?")
+            ctx = to_float(model.get("context_window"))
+            out = to_float(model.get("max_output_tokens"))
+            bits = []
+            if ctx:
+                bits.append(f"context {int(ctx):,}")
+            if out:
+                bits.append(f"max output {int(out):,}")
+            mods = model.get("input_modalities")
+            if isinstance(mods, list) and mods and mods != ["text"]:
+                bits.append("+".join(str(m) for m in mods))
+            if bits:
+                lines.append(Balance(label=mid, amount=None, currency=None,
+                                     kind=KIND_INFO, note="; ".join(bits)))
+        return lines

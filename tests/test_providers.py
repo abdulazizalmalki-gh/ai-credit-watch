@@ -16,27 +16,43 @@ def mock_client(handler):
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-async def test_deepseek_parses_balances():
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers["authorization"] == f"Bearer {KEY}"
-        assert request.url.path == "/user/balance"
-        return httpx.Response(
-            200,
-            json={
-                "is_available": True,
-                "balance_infos": [
-                    {
-                        "currency": "USD",
-                        "total_balance": "110.00",
-                        "granted_balance": "10.00",
-                        "topped_up_balance": "100.00",
-                    }
-                ],
-            },
-        )
+DEEPSEEK_MODELS = {
+    "object": "list",
+    "data": [
+        {"id": "deepseek-flash", "object": "model", "name": "DeepSeek-V4.1-Flash",
+         "context_window": 1048576, "max_output_tokens": 393216,
+         "input_modalities": ["text", "image"]},
+        {"id": "deepseek-v4-pro", "object": "model", "name": "DeepSeek-V4-Pro",
+         "context_window": 1048576, "max_output_tokens": 393216,
+         "input_modalities": ["text"]},
+    ],
+}
 
+
+def deepseek_handler(request: httpx.Request) -> httpx.Response:
+    assert request.headers["authorization"] == f"Bearer {KEY}"
+    if request.url.path == "/models":
+        return httpx.Response(200, json=DEEPSEEK_MODELS)
+    assert request.url.path == "/user/balance"
+    return httpx.Response(
+        200,
+        json={
+            "is_available": True,
+            "balance_infos": [
+                {
+                    "currency": "USD",
+                    "total_balance": "110.00",
+                    "granted_balance": "10.00",
+                    "topped_up_balance": "100.00",
+                }
+            ],
+        },
+    )
+
+
+async def test_deepseek_parses_balances():
     provider = DeepSeekProvider(api_key=KEY)
-    async with mock_client(handler) as client:
+    async with mock_client(deepseek_handler) as client:
         result = await provider.fetch(client)
 
     assert result.ok
@@ -49,6 +65,29 @@ async def test_deepseek_parses_balances():
     assert labels["Granted (unexpired)"] == 10.0
     assert labels["Topped up"] == 100.0
     assert result.meta["usable"] is True
+    # model context lines ride along when /models answers
+    assert labels["Models callable by this key"] == 2.0
+    flash = next(b for b in result.balances if b.label == "deepseek-flash")
+    assert "context 1,048,576" in flash.note
+    assert "max output 393,216" in flash.note
+    assert "+image" in flash.note  # modalities beyond text-only get shown
+    pro = next(b for b in result.balances if b.label == "deepseek-v4-pro")
+    assert "image" not in pro.note
+
+
+async def test_deepseek_survives_models_failure():
+    """Balance is the contract; a broken /models must not sink the card."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/models":
+            raise httpx.ConnectError("boom", request=request)
+        return deepseek_handler(request)
+
+    provider = DeepSeekProvider(api_key=KEY)
+    async with mock_client(handler) as client:
+        result = await provider.fetch(client)
+    assert result.ok
+    assert [b for b in result.balances if b.label == "Total balance"][0].amount == 110.0
+    assert not any("Models callable" in b.label for b in result.balances)
 
 
 async def test_deepseek_unauthorized():

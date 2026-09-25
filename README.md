@@ -16,7 +16,7 @@ Currently ships with:
 
 | Provider | Endpoint used | What it shows |
 | --- | --- | --- |
-| **DeepSeek** | `GET /user/balance` | total balance, granted vs. topped-up, per currency |
+| **DeepSeek** | `GET /user/balance` + `GET /models` | total balance, granted vs. topped-up, per currency; callable models with context/output specs |
 | **OpenRouter** | `GET /api/v1/key`, `GET /api/v1/credits` | account credits remaining (management key), per-key limit/usage, daily/weekly/monthly spend |
 | **OpenAI** | `GET /organization/costs`, `GET /organization/usage/completions` | spend for the last 30 days and today, average per day, plus tokens and model requests — *admin key only, and admin keys cannot read `/v1/models` (a plain project key gets an explanatory card instead)* |
 | **Moonshot / Kimi** | `GET /v1/users/me/balance` | available balance (= cash + voucher), cash and voucher separately; region-bound keys (`.ai` USD / `.cn` CNY) are auto-detected — no admin key needed |

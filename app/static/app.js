@@ -85,11 +85,17 @@ function primaryBalance(provider) {
   return balances.find((b) => b.primary) || balances.find((b) => b.kind === "balance") || null;
 }
 
-function line(label, value, className = "") {
+function line(label, value, className = "", note = "") {
   const li = document.createElement("li");
   const k = document.createElement("span");
   k.className = "k" + (className ? " " + className : "");
   k.textContent = label;
+  if (note) {
+    const sub = document.createElement("span");
+    sub.className = "sub";
+    sub.textContent = note;
+    k.append(document.createElement("br"), sub);
+  }
   const v = document.createElement("span");
   v.className = "val";
   v.textContent = value;
@@ -312,7 +318,11 @@ function card(provider) {
     if (others.length) {
       const list = document.createElement("ul");
       list.className = "lines";
-      others.forEach((b) => list.append(line(b.label, money(b.amount, b.currency))));
+      others.forEach((b) => {
+        // spec-only rows (no number) put their text under the label, not "—"
+        const value = b.amount === null && b.note ? "" : money(b.amount, b.currency);
+        list.append(line(b.label, value, "", b.note || ""));
+      });
       node.append(list);
     }
 

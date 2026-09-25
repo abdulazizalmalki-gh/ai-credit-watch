@@ -42,6 +42,8 @@ class Balance:
     currency: str | None = None
     kind: str = KIND_BALANCE
     primary: bool = False
+    #: optional detail line rendered under the label (e.g. model specs)
+    note: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -50,6 +52,7 @@ class Balance:
             "currency": self.currency,
             "kind": self.kind,
             "primary": self.primary,
+            "note": self.note,
         }
 
 

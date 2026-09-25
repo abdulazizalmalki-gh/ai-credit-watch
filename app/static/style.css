@@ -144,6 +144,7 @@ select, .btn {
 .lines li:first-child { border-top: 0; padding-top: 0; }
 .lines .val { font-variant-numeric: tabular-nums; }
 .lines .k { color: var(--muted); }
+.lines .sub { color: var(--muted); font-size: 11px; opacity: 0.85; }
 
 .link-box { display: flex; align-items: center; gap: 10px; margin: 4px 0 8px; flex-wrap: wrap; }
 .link-alt {
