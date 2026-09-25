@@ -193,20 +193,30 @@ function linkControl(provider) {
         ? `${fetchCmd} ${origin}/static/link-relay.py -o link-relay.py; ${runCmd} link-relay.py --server ${origin} --code ${body.code}`
         : `${fetchCmd} ${origin}/static/link-relay.py -o link-relay.py && ${runCmd} link-relay.py --server ${origin} --code ${body.code}`;
       hint.innerHTML = "";
-      const pre = document.createElement("div");
-      pre.className = "link-cmd";
-      const code = document.createElement("code");
-      code.textContent = command;
+      const box = document.createElement("div");
+      box.className = "link-cmd";
+      const head = document.createElement("div");
+      head.className = "link-cmd-head";
+      const label = document.createElement("span");
+      label.textContent = "Run this on the computer with your browser:";
       const copy = document.createElement("button");
       copy.type = "button";
       copy.className = "link-copy";
-      copy.textContent = "copy";
+      copy.textContent = "Copy command";
       copy.addEventListener("click", () => {
-        navigator.clipboard.writeText(command).then(() => { copy.textContent = "copied"; });
+        const done = () => {
+          copy.textContent = "Copied ✓";
+          setTimeout(() => { copy.textContent = "Copy command"; }, 2500);
+        };
+        if (navigator.clipboard) navigator.clipboard.writeText(command).then(done, done);
+        else done();
       });
-      pre.append(code, copy);
-      wrap.append(pre);
-      hint.textContent = "run that on the computer with your browser — it opens the Qwen sign-in there and finishes automatically";
+      head.append(label, copy);
+      const code = document.createElement("code");
+      code.textContent = command;
+      box.append(head, code);
+      wrap.append(box);
+      hint.textContent = "waiting for the sign-in — it finishes on its own";
       startPoll();
     } catch (error) {
       hint.textContent = String(error.message || error);
